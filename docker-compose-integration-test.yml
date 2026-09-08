@@ -12,6 +12,7 @@ services:
       app_network:
         aliases:
           - test.lvh.me
+          - translate.google.com
 
 
 networks:

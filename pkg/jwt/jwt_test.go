@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/divilla/go-scream-template/pkg/jwt"
+	jwtlib "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +56,18 @@ func TestJWT_ParseToken_Expired(t *testing.T) {
 
 	_, err = j.ParseToken(token)
 	require.Error(t, err)
+}
+
+func TestTokenClaimsAndAlgorithm(t *testing.T) {
+	t.Parallel()
+
+	manager := jwt.New("test-secret", time.Hour)
+	wrongSubject, err := jwtlib.NewWithClaims(jwtlib.SigningMethodHS256, jwtlib.MapClaims{"sub": 123}).SignedString([]byte("test-secret"))
+	require.NoError(t, err)
+	_, err = manager.ParseToken(wrongSubject)
+	require.ErrorContains(t, err, "GetSubject")
+	unsigned, err := jwtlib.NewWithClaims(jwtlib.SigningMethodNone, jwtlib.MapClaims{"sub": "user"}).SignedString(jwtlib.UnsafeAllowNoneSignatureType)
+	require.NoError(t, err)
+	_, err = manager.ParseToken(unsigned)
+	require.ErrorIs(t, err, jwt.ErrUnexpectedSigningMethod)
 }

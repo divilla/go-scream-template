@@ -39,7 +39,9 @@ type Server struct {
 	stop   chan struct{}
 	notify chan error
 
-	timeout time.Duration
+	publishMessage  func(string, amqp.Publishing) error
+	closeConnection func() error
+	timeout         time.Duration
 
 	logger logger.Interface
 }
@@ -64,6 +66,11 @@ func New(url, serverExchange string, router map[string]CallHandler, l logger.Int
 		notify:  make(chan error, 1),
 		timeout: _defaultTimeout,
 		logger:  l,
+	}
+
+	s.closeConnection = func() error { return s.conn.Connection.Close() }
+	s.publishMessage = func(exchange string, message amqp.Publishing) error {
+		return s.conn.Channel.Publish(exchange, "", false, false, message)
 	}
 
 	// Custom options
@@ -118,7 +125,7 @@ func (s *Server) Shutdown() error {
 
 	// Close connection
 
-	err = s.conn.Connection.Close()
+	err = s.closeConnection()
 	if err != nil {
 		s.logger.Error(err, "rmq_rpc server - Server - Shutdown - s.Connection.Close")
 
@@ -203,11 +210,8 @@ func (s *Server) ack(d *amqp.Delivery, multiple bool) {
 }
 
 func (s *Server) publish(d *amqp.Delivery, body []byte, status string) {
-	err := s.conn.Channel.Publish(
+	err := s.publishMessage(
 		d.ReplyTo,
-		"",
-		false,
-		false,
 		amqp.Publishing{
 			ContentType:   "application/json",
 			CorrelationId: d.CorrelationId,

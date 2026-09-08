@@ -1,0 +1,4 @@
+interface:
+  display_name: "Branch Stats"
+  short_description: "Analyze branch code, tests, and comment churn"
+  default_prompt: "Use $branch-stats to show the complete changed-line table for the current branch against its base."

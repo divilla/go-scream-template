@@ -14,10 +14,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// Reusing the same test name must still create distinct, usable accounts.
+func TestHTTPRepeatedRegistration(t *testing.T) {
+	for range 2 {
+		if token := registerAndLogin(t); token == "" {
+			t.Fatal("expected non-empty token")
+		}
+	}
+}
+
 // HTTP POST: /v1/auth/register.
 func TestHTTPRegisterV1(t *testing.T) {
 	// Pre-register a user for the duplicate test case.
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	dupEmail := name + "_dup@test.com"
 	dupUser := name + "_dup"
 
@@ -79,7 +88,7 @@ func TestHTTPRegisterV1(t *testing.T) {
 
 // HTTP POST: /v1/auth/login.
 func TestHTTPLoginV1(t *testing.T) {
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -196,7 +205,7 @@ func TestHTTPProfileV1(t *testing.T) {
 
 // gRPC: AuthService Register and Login.
 func TestGRPCAuthRegisterLoginV1(t *testing.T) {
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -276,7 +285,7 @@ func TestGRPCAuthProfileV1(t *testing.T) {
 
 // RabbitMQ RPC: register + login smoke test.
 func TestRMQUserV1(t *testing.T) {
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -333,7 +342,7 @@ func TestRMQUserV1(t *testing.T) {
 
 // NATS RPC: register + login smoke test.
 func TestNATSUserV1(t *testing.T) {
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 

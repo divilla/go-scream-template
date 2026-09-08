@@ -27,12 +27,16 @@ func New(secret string, duration time.Duration) *Manager {
 
 // GenerateToken creates a new JWT token for the given user ID.
 func (m *Manager) GenerateToken(userID string) (string, error) {
+	return m.generateToken(userID, (*jwtlib.Token).SignedString)
+}
+
+func (m *Manager) generateToken(userID string, sign func(*jwtlib.Token, any) (string, error)) (string, error) {
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodHS256, jwtlib.RegisteredClaims{
 		Subject:   userID,
 		ExpiresAt: jwtlib.NewNumericDate(time.Now().Add(m.duration)),
 	})
 
-	tokenString, err := token.SignedString([]byte(m.secret))
+	tokenString, err := sign(token, []byte(m.secret))
 	if err != nil {
 		return "", fmt.Errorf("jwt - GenerateToken - token.SignedString: %w", err)
 	}

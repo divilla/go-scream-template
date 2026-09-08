@@ -29,13 +29,19 @@ const _tracerName = "nats-rpc.server"
 // CallHandler -.
 type CallHandler func(context.Context, *nats.Msg) (any, error)
 
+type connection interface {
+	Close()
+	Subscribe(string, nats.MsgHandler) (*nats.Subscription, error)
+	PublishMsg(*nats.Msg) error
+}
+
 // Server -.
 type Server struct {
 	ctx context.Context
 	eg  *errgroup.Group
 
 	subject      string
-	connection   *nats.Conn
+	connection   connection
 	subscription *nats.Subscription
 	router       map[string]CallHandler
 	stop         chan struct{}
@@ -54,15 +60,21 @@ func New(
 	l logger.Interface,
 	opts ...Option,
 ) (*Server, error) {
+	return newServer(url, serverSubject, router, l, func(url string) (connection, error) {
+		return nats.Connect(
+			url,
+			nats.ReconnectWait(_defaultWaitTime),
+			nats.MaxReconnects(_defaultAttempts),
+			nats.Timeout(_defaultWaitTime),
+		)
+	}, opts...)
+}
+
+func newServer(url, serverSubject string, router map[string]CallHandler, l logger.Interface, connect func(string) (connection, error), opts ...Option) (*Server, error) {
 	group, ctx := errgroup.WithContext(context.Background())
 	group.SetLimit(1) // Run only one goroutine
 
-	connection, err := nats.Connect(
-		url,
-		nats.ReconnectWait(_defaultWaitTime),
-		nats.MaxReconnects(_defaultAttempts),
-		nats.Timeout(_defaultWaitTime),
-	)
+	connection, err := connect(url)
 	if err != nil {
 		return nil, fmt.Errorf("nats_rpc server - NewServer - nats.Connect: %w", err)
 	}

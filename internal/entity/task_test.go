@@ -44,3 +44,11 @@ func TestTask_Transition(t *testing.T) {
 		})
 	}
 }
+
+func TestUnknownTaskStatus(t *testing.T) {
+	t.Parallel()
+
+	task := entity.Task{Status: entity.TaskStatus("unknown")}
+	require.ErrorIs(t, task.Transition(entity.TaskStatusTodo), entity.ErrInvalidTransition)
+	assert.Equal(t, entity.TaskStatus("unknown"), task.Status)
+}

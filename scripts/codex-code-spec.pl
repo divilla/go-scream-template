@@ -312,7 +312,7 @@ sub main {
 		specification => $specification,
 	});
 	print "\n=== Implementation ===\n";
-	my $prompt = '$change-code ' . $specification;
+	my $prompt = '$change-implement ' . $specification;
 	my $status = run_codex('codex', 'exec', '--json', '-o', $result_file, $prompt);
 	exit $status if $status != 0;
 	-f $result_file or fail('implementation did not write a final response');

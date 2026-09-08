@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,4 +155,12 @@ func TestGetUser_GenericError(t *testing.T) {
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, errInternalServErr)
+}
+
+func TestRegisterPasswordTooLong(t *testing.T) {
+	t.Parallel()
+	uc, _ := newUserUseCase(t)
+	registered, err := uc.Register(t.Context(), "alice", "alice@example.com", strings.Repeat("a", 73))
+	require.ErrorIs(t, err, bcrypt.ErrPasswordTooLong)
+	assert.Empty(t, registered)
 }

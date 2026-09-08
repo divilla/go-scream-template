@@ -65,7 +65,16 @@ func TestHTTPDoTranslateV1(t *testing.T) {
 			defer resp.Body.Close()
 
 			if resp.StatusCode != tt.expected {
-				t.Errorf("Expected status %d, got %d", tt.expected, resp.StatusCode)
+				t.Fatalf("Expected status %d, got %d", tt.expected, resp.StatusCode)
+			}
+
+			if tt.expected == http.StatusOK {
+				body := parseJSON[struct {
+					Translation string `json:"translation"`
+				}](t, resp)
+				if body.Translation != "text for translation" {
+					t.Errorf("Unexpected translation: %q", body.Translation)
+				}
 			}
 		})
 	}
@@ -125,8 +134,12 @@ func TestHTTPHistoryV1(t *testing.T) {
 
 	body := parseJSON[historyBody](t, resp)
 
-	if len(body.History) == 0 {
-		t.Error("Expected non-empty history")
+	if len(body.History) != 1 {
+		t.Fatalf("Expected one saved translation, got %d", len(body.History))
+	}
+
+	if body.History[0].Original != "текст для перевода" || body.History[0].Translation != "text for translation" {
+		t.Errorf("Unexpected saved translation: %+v", body.History[0])
 	}
 }
 

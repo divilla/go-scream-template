@@ -1,7 +1,6 @@
 package middleware_test
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,25 +8,25 @@ import (
 
 	"github.com/divilla/go-scream-template/internal/controller/restapi/middleware"
 	"github.com/divilla/go-scream-template/pkg/jwt"
-	"github.com/gofiber/fiber/v2"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestApp(t *testing.T) (*fiber.App, *jwt.Manager) {
+func newTestApp(t *testing.T) (*echo.Echo, *jwt.Manager) {
 	t.Helper()
 
 	jwtManager := jwt.New("test-secret", time.Hour)
 
-	app := fiber.New()
+	app := echo.New()
 	app.Use(middleware.Auth(jwtManager))
-	app.Get("/test", func(c *fiber.Ctx) error {
-		userID, ok := c.Locals("userID").(string)
+	app.GET("/test", func(c *echo.Context) error {
+		userID, ok := c.Get("userID").(string)
 		if !ok {
-			return c.SendStatus(http.StatusUnauthorized)
+			return c.NoContent(http.StatusUnauthorized)
 		}
 
-		return c.SendString(userID)
+		return c.String(http.StatusOK, userID)
 	})
 
 	return app, jwtManager
@@ -81,17 +80,12 @@ func TestAuthMiddleware(t *testing.T) {
 				req.Header.Set("Authorization", localTc.authHeader)
 			}
 
-			resp, err := app.Test(req)
-			require.NoError(t, err)
-
-			defer resp.Body.Close()
-
-			assert.Equal(t, localTc.expectedStatus, resp.StatusCode)
+			resp := httptest.NewRecorder()
+			app.ServeHTTP(resp, req)
+			assert.Equal(t, localTc.expectedStatus, resp.Code)
 
 			if localTc.expectedBody != "" {
-				body, readErr := io.ReadAll(resp.Body)
-				require.NoError(t, readErr)
-				assert.Equal(t, localTc.expectedBody, string(body))
+				assert.Equal(t, localTc.expectedBody, resp.Body.String())
 			}
 		})
 	}

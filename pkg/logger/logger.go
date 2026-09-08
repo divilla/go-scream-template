@@ -10,6 +10,7 @@ import (
 
 // Interface -.
 type Interface interface {
+	Zerolog() *zerolog.Logger
 	Debug(message any, args ...any)
 	Info(message string, args ...any)
 	Warn(message string, args ...any)
@@ -43,17 +44,20 @@ func New(level string) *Logger {
 
 	zerolog.SetGlobalLevel(l)
 
-	skipFrameCount := 3
 	logger := zerolog.
 		New(os.Stdout).
 		With().
 		Timestamp().
-		CallerWithSkipFrameCount(zerolog.CallerSkipFrameCount + skipFrameCount).
 		Logger()
 
 	return &Logger{
 		logger: new(logger),
 	}
+}
+
+// Zerolog returns the configured logger for structured logging integrations.
+func (l *Logger) Zerolog() *zerolog.Logger {
+	return l.logger
 }
 
 // Debug -.

@@ -3,7 +3,6 @@ package restapi
 import (
 	"net/http"
 
-	"github.com/ansrivas/fiberprometheus/v2"
 	"github.com/divilla/go-scream-template/config"
 	_ "github.com/divilla/go-scream-template/docs" // Swagger docs.
 	"github.com/divilla/go-scream-template/internal/controller/restapi/middleware"
@@ -11,9 +10,13 @@ import (
 	"github.com/divilla/go-scream-template/internal/usecase"
 	"github.com/divilla/go-scream-template/pkg/jwt"
 	"github.com/divilla/go-scream-template/pkg/logger"
-	"github.com/gofiber/contrib/otelfiber/v2"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
+	echootel "github.com/labstack/echo-opentelemetry"
+	echoprometheus "github.com/labstack/echo-prometheus"
+	"github.com/labstack/echo/v5"
+	echomiddleware "github.com/labstack/echo/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	echoSwagger "github.com/swaggo/echo-swagger/v2"
 )
 
 // NewRouter -.
@@ -27,31 +30,66 @@ import (
 //	@securityDefinitions.apikey BearerAuth
 //	@in header
 //	@name Authorization
-func NewRouter(app *fiber.App, cfg *config.Config, t usecase.Translation, u usecase.User, tk usecase.Task, jwtManager *jwt.Manager, l logger.Interface) {
+func NewRouter(app *echo.Echo, cfg *config.Config, t usecase.Translation, u usecase.User, tk usecase.Task, jwtManager *jwt.Manager, l logger.Interface) {
 	// Options
-	app.Use(middleware.Logger(l))
-	app.Use(middleware.Recovery(l))
+	app.Pre(echomiddleware.RemoveTrailingSlash())
+	app.Use(echomiddleware.RequestID())
+	app.Use(middleware.Logger(l.Zerolog()))
+	app.Use(echomiddleware.RecoverWithConfig(echomiddleware.RecoverConfig{DisableStackAll: true}))
 
 	// Prometheus metrics
 	if cfg.Metrics.Enabled {
-		prometheus := fiberprometheus.New("my-service-name")
-		prometheus.RegisterAt(app, "/metrics")
-		app.Use(prometheus.Middleware)
+		registry := prometheus.NewRegistry()
+		registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+		app.Use(echoprometheus.NewMiddlewareWithConfig(echoprometheus.MiddlewareConfig{
+			Subsystem:                 "echo",
+			Registerer:                registry,
+			DoNotUseRequestPathFor404: true,
+			LabelFuncs: map[string]echoprometheus.LabelValueFunc{
+				// Keep client-controlled Host headers from creating unbounded metric series.
+				"host": func(_ *echo.Context, _ error) string { return cfg.App.Name },
+				"method": func(ctx *echo.Context, _ error) string {
+					// Bound client-controlled methods without changing routing semantics.
+					switch method := ctx.Request().Method; method {
+					case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+						http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace, http.MethodPatch:
+						return method
+					default:
+						return "UNKNOWN"
+					}
+				},
+			},
+		}))
+		app.GET("/metrics", echoprometheus.NewHandlerWithConfig(echoprometheus.HandlerConfig{Gatherer: registry}))
 	}
 
 	// Swagger
 	if cfg.Swagger.Enabled {
-		app.Get("/swagger/*", swagger.HandlerDefault)
+		app.GET("/swagger", func(ctx *echo.Context) error {
+			return ctx.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
+		})
+		app.GET("/swagger/*", func(ctx *echo.Context) error {
+			// Swagger accepts only GET; Echo's HEAD wrapper suppresses its body.
+			if req := ctx.Request(); req.Method == http.MethodHead {
+				head := req.Clone(req.Context())
+				head.Method = http.MethodGet
+
+				ctx.SetRequest(head)
+				defer ctx.SetRequest(req)
+			}
+
+			return echoSwagger.WrapHandler(ctx)
+		})
 	}
 
 	// K8s probe
-	app.Get("/healthz", func(ctx *fiber.Ctx) error { return ctx.SendStatus(http.StatusOK) })
+	app.GET("/healthz", func(ctx *echo.Context) error { return ctx.NoContent(http.StatusOK) })
 
 	// Routers
 	apiV1Group := app.Group("/v1")
 	{
 		if cfg.Tracing.Enabled {
-			apiV1Group.Use(otelfiber.Middleware())
+			apiV1Group.Use(echootel.NewMiddleware(cfg.App.Name))
 		}
 
 		v1.NewRoutes(apiV1Group, t, u, tk, jwtManager, l)

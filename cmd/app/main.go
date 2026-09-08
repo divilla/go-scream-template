@@ -7,13 +7,22 @@ import (
 	"github.com/divilla/go-scream-template/internal/app"
 )
 
+//nolint:gochecknoglobals // The process boundary is replaceable in unit tests without exiting or starting external services.
+var entrypoint = struct {
+	config func() (*config.Config, error)
+	run    func(*config.Config)
+	fatal  func(string, ...any)
+}{config.NewConfig, app.Run, log.Fatalf}
+
 func main() {
 	// Configuration
-	cfg, err := config.NewConfig()
+	cfg, err := entrypoint.config()
 	if err != nil {
-		log.Fatalf("Config error: %s", err)
+		entrypoint.fatal("Config error: %s", err)
+
+		return
 	}
 
 	// Run
-	app.Run(cfg)
+	entrypoint.run(cfg)
 }

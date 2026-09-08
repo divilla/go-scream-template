@@ -19,7 +19,10 @@ const docTemplate = `{
             "post": {
                 "description": "Authenticate user and get JWT token",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "text/xml",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -59,6 +62,15 @@ const docTemplate = `{
                             "$ref": "#/definitions/v1.Error"
                         }
                     },
+                    "413": {
+                        "description": "Request body exceeds 4 MiB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -72,7 +84,10 @@ const docTemplate = `{
             "post": {
                 "description": "Register a new user",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "text/xml",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -110,6 +125,15 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/v1.Error"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body exceeds 4 MiB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
@@ -188,7 +212,10 @@ const docTemplate = `{
             "post": {
                 "description": "Create a new task for the current user",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "text/xml",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -226,6 +253,15 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/v1.Error"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body exceeds 4 MiB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
@@ -303,7 +339,10 @@ const docTemplate = `{
             "put": {
                 "description": "Update task title and description",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "text/xml",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -360,6 +399,15 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/v1.Error"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body exceeds 4 MiB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
@@ -425,7 +473,10 @@ const docTemplate = `{
             "patch": {
                 "description": "Change task status (todo -\u003e in_progress -\u003e done, or in_progress -\u003e todo)",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "text/xml",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -484,6 +535,15 @@ const docTemplate = `{
                             "$ref": "#/definitions/v1.Error"
                         }
                     },
+                    "413": {
+                        "description": "Request body exceeds 4 MiB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -502,7 +562,10 @@ const docTemplate = `{
             "post": {
                 "description": "Translate a text",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "text/xml",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -540,6 +603,15 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/v1.Error"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body exceeds 4 MiB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
