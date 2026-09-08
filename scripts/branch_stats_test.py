@@ -79,8 +79,8 @@ class BranchStatsTests(unittest.TestCase):
                 "scripts/tool.test.py", "scripts/tool.spec.sh",
             ],
             "Integration tests and fixtures": [
-                "integration-test/user_test.go", "integration-test/Dockerfile",
-                "integration-test/fixtures/data.json", "int-tests/scenario.yaml",
+                "int-tests/user_test.go", "int-tests/Dockerfile",
+                "int-tests/fixtures/data.json", "int-tests/scenario.yaml",
             ],
             "Developer tooling": [
                 "Makefile", "scripts/codex-code-spec.pl", "scripts/codex-review-loop.pl",

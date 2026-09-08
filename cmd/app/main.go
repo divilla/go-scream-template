@@ -9,12 +9,15 @@ import (
 
 //nolint:gochecknoglobals // The process boundary is replaceable in unit tests without exiting or starting external services.
 var entrypoint = struct {
-	config func() (*config.Config, error)
-	run    func(*config.Config)
-	fatal  func(string, ...any)
-}{config.NewConfig, app.Run, log.Fatalf}
+	migrate func()
+	config  func() (*config.Config, error)
+	run     func(*config.Config)
+	fatal   func(string, ...any)
+}{app.Migrate, config.NewConfig, app.Run, log.Fatalf}
 
 func main() {
+	entrypoint.migrate()
+
 	// Configuration
 	cfg, err := entrypoint.config()
 	if err != nil {

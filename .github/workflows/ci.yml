@@ -79,5 +79,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
       - name: Integration tests
-        run: "make compose-up-integration-test"
+        run: make int-tests
+      - name: Upload integration coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: .coverage/integration/
+          include-hidden-files: true

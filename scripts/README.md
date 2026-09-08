@@ -4,10 +4,26 @@ This directory contains maintained, user-owned helpers for working with the APIH
 
 ## Run checks
 
-Run `make check` for application linting, vetting, race tests, and black-box
-integration tests. Run `make check-scripts` separately for the repository script
-tests. `make test` runs only short application tests; `make tooling-test` remains
-an alias for `make check-scripts`.
+Run `make check` to tidy and verify dependencies, generate Swagger/protobuf and
+mocks, apply Go fixes and formatting, lint Go/Docker/environment files, and run
+unit tests with race detection and greater than 95% coverage per handwritten
+production package in each of the default and `migrate` builds. Generated code
+is filtered out of both profiles by `check_coverage.py`; neither build can mask
+missing coverage in the other. Run `make check-all` to follow those checks with Docker integration tests.
+Run `make test-makefile` separately for the Makefile workflow regression tests.
+
+`make int-tests` runs `run_int_tests.py`, which collects coverage from the Docker
+service after graceful shutdown. `check_int_coverage.py` excludes generated code
+and enforces >90% aggregate handwritten service statement coverage separately from
+unit coverage. Raw data and reports are retained under `.coverage/integration/`.
+Docker global options before `compose` in `BASE_STACK` or `INT_TESTS_STACK`
+(such as `docker --context test compose`) also apply to app inspection and startup
+container wait, logs, and removal. Previously these lifecycle commands used bare
+`docker`, which could select a different endpoint and fail after successful tests.
+The runner now keeps them on the configured endpoint; Compose file and project
+options remain limited to Compose commands.
+`make test-coverage` tests both coverage gates and the integration lifecycle,
+including failure propagation, fresh data, and shutdown before collection.
 
 Run `make install` from the repository root to execute `go install ./cmd/apih`.
 Go installs the binary into `GOBIN` when set or otherwise `$GOPATH/bin`

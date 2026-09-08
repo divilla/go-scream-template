@@ -1,0 +1,31 @@
+services:
+  app:
+    build:
+      target: integration
+    environment:
+      GOCOVERDIR: /coverage
+      JWT_SECRET: &integration-jwt-secret integration-test-secret
+    volumes:
+      - ${INT_COVERAGE_DIR:-./.coverage/integration/raw}:/coverage
+
+  int-tests:
+    container_name: int-tests
+    platform: linux/amd64
+    environment:
+      JWT_SECRET: *integration-jwt-secret
+    pid: "host"
+    build:
+      context: .
+      dockerfile: int-tests/Dockerfile
+    depends_on:
+      - app
+    networks:
+      app_network:
+        aliases:
+          - test.lvh.me
+          - translate.google.com
+
+
+networks:
+  app_network:
+    external: false

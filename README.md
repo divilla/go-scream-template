@@ -118,6 +118,32 @@ After stopping the stack with `make compose-down`, `make docker-rm-volume` delet
 the database volume for the selected Compose project. This target requires
 `python3` to read the resolved Compose configuration.
 
+### Development checks
+
+Run `make check` to tidy and verify dependencies, regenerate Swagger, protobuf/gRPC
+and mocks, apply Go fixes and formatting, lint Go code, Dockerfiles and environment
+files, and run unit tests with race detection and greater than 95% coverage in each
+production package. This command can update source, generated files and dependency
+metadata. It requires `swag`, `protoc` and its Go plugins, `hadolint`,
+`dotenv-linter`, and `python3` on `PATH`.
+
+Unit coverage is measured separately for the default build and the production
+`migrate` build. Each requires >95% statement coverage per handwritten package
+under `cmd`, `config`, `internal`, and `pkg`; generated code and dependencies are
+excluded. Reports are `coverage.txt` and `.coverage/unit-migrate.txt`.
+Migration retries and failures are unit-tested without PostgreSQL.
+
+Migration startup is now called explicitly by the executable before configuration
+loading, so importing `internal/app` no longer starts migrations. This allows
+tests to compile the production build without database side effects. Executables
+built with `migrate` retain migration-before-configuration ordering; builds without
+the tag skip migrations. Entry-point ordering and migration outcomes have unit tests.
+
+Run `make check-all` to run `make check` followed by Docker integration tests.
+`make pre-commit` has been removed in favor of `make check`; integration tests that
+previously ran under `make check` now run under `make check-all`. This keeps routine
+checks independent of Docker while providing one command for the full suite.
+
 ### Integration tests (can be run in CI)
 
 The integration Compose file routes translation requests to a local HTTPS
@@ -130,9 +156,43 @@ containers stop.
 
 
 ```sh
-# DB, app + migrations, integration tests
-make compose-up-integration-test
+# DB, app + migrations, integration tests and >90% service coverage
+make int-tests
 ```
+
+`make compose-up-int-tests` is an alias for `make int-tests`. Both now fail if
+aggregate integration statement coverage is 90% or lower; previously they checked
+only test success. The integration image instruments the service with Go coverage.
+The denominator includes handwritten production code linked into that binary,
+including startup and shutdown, and excludes generated code and dependencies.
+Per-package percentages are reported, but the integration gate uses the aggregate
+statement counts. Unit coverage remains independent and requires >95% per package.
+
+The runner starts with fresh coverage data, waits for the tests, then gracefully
+stops the app while its dependencies remain available. Failed tests, failed app
+shutdown, missing or invalid coverage, and cleanup failures all fail the target.
+Reports are retained under `.coverage/integration/`: `coverage.txt` is the filtered
+Go profile, `summary.txt` reports the gate, and `service.txt` and `raw/` retain the
+original service data. CI uploads this directory even on failure. Do not run two
+integration suites concurrently in the same checkout.
+
+Integration tests require Docker Compose with `wait` support, Go matching `go.mod`,
+and `python3` on the host. The default production image remains uninstrumented.
+Operation and cross-transport acceptance tests are still required: statement
+coverage alone does not demonstrate that each transport implements every operation.
+
+The suite also checks configuration, listener, and broker startup failures by
+launching the same instrumented image and verifying exit codes and diagnostics.
+Only these integration executions contribute to the service coverage report.
+An integration-only JWT key enables signed fixture identities for database error
+scenarios without modifying shared tables.
+
+The new history regression scenarios exposed an iteration-error bug: PostgreSQL
+errors arriving after a query started could produce a successful empty or partial
+history. History now checks the final row error, returning HTTP 500, gRPC Internal,
+or the broker RPC error response instead. Unit tests cover failures before the
+first row and after a row, including preservation of the underlying database error,
+and integration tests verify the error across all four transports.
 
 ### Full docker stack with reverse proxy
 

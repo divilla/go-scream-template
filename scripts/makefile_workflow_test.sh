@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 test_root=$(mktemp -d)
-trap 'rm -rf -- "$test_root"' EXIT
+trap 'status=$?; if (( status != 0 )); then cat "$test_root/output" >&2; fi; rm -rf -- "$test_root"; exit "$status"' EXIT
 
 repo="$test_root/repo with spaces"
 fake_bin="$test_root/bin"
@@ -11,7 +11,17 @@ mkdir -p "$repo" "$fake_bin"
 cp "$script_dir/../Makefile" "$repo/Makefile"
 mkdir -p "$repo/scripts"
 cp "$script_dir/check_coverage.py" "$script_dir/check_coverage_test.py" "$repo/scripts/"
+# The runner's lifecycle is covered by run_int_tests_test.py; here verify Make's
+# ordering and Compose argument forwarding without starting real containers.
+cat >"$repo/scripts/run_int_tests.py" <<'EOF'
+import subprocess
+import sys
+subprocess.run(sys.argv[1:] + ["workflow-test"], check=True)
+EOF
 touch "$repo/.env"
+printf 'module example\n' >"$repo/go.mod"
+mkdir -p "$repo/pkg"
+printf 'package pkg\n' >"$repo/pkg/code.go"
 
 # Exercise Make's real scheduler without changing source or starting containers.
 cat >"$fake_bin/stub" <<'EOF'
@@ -24,9 +34,13 @@ if [[ $command == "${MAKEFILE_TEST_FAIL-}" ]]; then
 fi
 case "$command" in
     'go test '*)
+        build=default
+        [[ $command != *'-tags migrate'* ]] || build=migrate
+        executions=1
+        [[ ${MAKEFILE_TEST_UNCOVERED_BUILD-} != "$build" ]] || executions=0
         for arg in "$@"; do
             if [[ $arg == -coverprofile=* ]]; then
-                printf 'mode: atomic\nexample/pkg/code.go:1.1,2.1 1 1\n' >"${arg#-coverprofile=}"
+                printf 'mode: atomic\nexample/pkg/code.go:1.1,2.1 1 %s\n' "$executions" >"${arg#-coverprofile=}"
             fi
         done
         ;;
@@ -53,14 +67,35 @@ export MAKEFILE_TEST_LOG="$test_root/tool.log"
 run_make() {
 	: >"$MAKEFILE_TEST_LOG"
 	# Skip this target inside the fixture to avoid recursively testing the tests.
-	make --no-print-directory -C "$repo" -j8 -o test-makefile "$@" >"$test_root/output" 2>&1
+	make --no-print-directory -C "$repo" -j8 -o test-makefile -o test-coverage "$@" >"$test_root/output" 2>&1
 }
 
-# Help must list the versioned generator targets.
+# Separate each echoed command with one blank line, including in dry runs.
+expected_format_output=$'\ngo fix ./...\n\ngo tool golangci-lint fmt'
+run_make format
+[[ $(cat "$test_root/output") == "$expected_format_output" ]]
+run_make -n format
+[[ $(cat "$test_root/output") == "$expected_format_output" ]]
+[[ ! -s "$MAKEFILE_TEST_LOG" ]]
+
+# A continued recipe remains one command, with one leading blank line.
+run_make proto-v1
+awk '
+	NR == 1 && $0 != "" { failed = 1 }
+	NR == 2 && $0 !~ /^protoc / { failed = 1 }
+	/^$/ { blanks++ }
+	END { if (failed || NR < 2 || blanks != 1) exit 1 }
+' "$test_root/output"
+
+# Help must list the generators and unified checks, with the old target removed.
 run_make help
-for target in swag-v1 proto-v1; do
+for target in swag-v1 proto-v1 check check-all; do
 	grep -Eq "$target[[:space:]]" "$test_root/output"
 done
+if grep -q 'pre-commit' "$test_root/output" || run_make pre-commit; then
+	printf '%s\n' 'pre-commit should be removed' >&2
+	exit 1
+fi
 
 # Startup and logs must use the same stack even with a different COMPOSE_FILE.
 for stack in 'docker compose -f docker-compose.yml' 'docker compose -f custom-compose.yml -p custom-project'; do
@@ -93,28 +128,68 @@ awk '
 	/^start docker / { exit 1 }
 	/^start go test / {
 		if ($0 !~ /-race/ || $0 !~ /-covermode=atomic/ ||
-		    $0 !~ /-coverprofile=coverage.txt/ || $0 !~ /\.\/internal\/\.\.\. \.\/pkg\/\.\.\./) exit 1
+		    $0 !~ /-coverprofile=/ || $0 !~ /\.\/internal\/\.\.\. \.\/pkg\/\.\.\./) exit 1
+		if ($0 ~ /-tags migrate/ && $0 ~ /-coverprofile=.coverage\/unit-migrate.txt/) tagged++
+		if ($0 !~ /-tags/ && $0 ~ /-coverprofile=coverage.txt/) untagged++
 		tests++
 	}
 	/^start go tool cover / { coverage++ }
-	END { if (tests != 1 || coverage != 1) exit 1 }
+	END { if (tests != 2 || coverage != 2 || tagged != 1 || untagged != 1) exit 1 }
 ' "$MAKEFILE_TEST_LOG"
 
-for target in check pre-commit; do
+for build in default migrate; do
+	export MAKEFILE_TEST_UNCOVERED_BUILD="$build"
+	if run_make test; then
+		printf 'test should fail when %s coverage is below the threshold\n' "$build" >&2
+		exit 1
+	fi
+	unset MAKEFILE_TEST_UNCOVERED_BUILD
+done
+
+for target in check check-all; do
+	# Phony targets must still run when a file shares their name.
+	touch "$repo/$target"
 	run_make "$target"
 	awk -v target="$target" '
+		/^end go mod tidy$/ { tidy++ }
+		/^start go mod verify$/ { if (tidy != 1) failed = 1 }
+		/^end go mod verify$/ { verified++ }
+		/^start swag / { if (verified != 1) failed = 1 }
+		/^end swag / { swagger++ }
+		/^start protoc / { if (swagger != 1) failed = 1 }
+		/^end protoc / { proto++ }
+		/^start go tool mockgen / { if (proto != 1) failed = 1 }
 		/^end go tool mockgen / { mocks++ }
-		/^start go fix / { if (mocks != 2) exit 1 }
+		/^start go fix / { if (mocks != 2) failed = 1; fix++ }
 		/^end go tool golangci-lint fmt$/ { formatted = 1 }
-		/^start go tool golangci-lint run$/ { if (!formatted) exit 1; lint++ }
-		/^start go test / { if (!formatted || mocks != 2) exit 1; tests++ }
-		/^start docker / { if (!formatted || tests != 1) exit 1; docker++ }
+		/^start go tool golangci-lint run$/ { if (!formatted) failed = 1; lint++ }
+		/^start hadolint / { if (!formatted) failed = 1; dockerlint++ }
+		/^start dotenv-linter check / { if (!formatted) failed = 1; envlint++ }
+		/^start go test / {
+			if (!formatted || mocks != 2 || lint != 1 || dockerlint != 1 || envlint != 1) failed = 1
+			tests++
+		}
+		/^end go tool cover / { coverage++ }
+		/^start docker / { if (coverage != 2) failed = 1; docker++ }
 		END {
-			if (mocks != 2 || lint != 1 || tests != 1) exit 1
-			if (target == "check" && docker != 2) exit 1
-			if (target == "pre-commit" && docker != 0) exit 1
+			if (failed || tidy != 1 || verified != 1 || swagger != 1 || proto != 1 ||
+			    mocks != 2 || fix != 1 || !formatted || lint != 1 || dockerlint != 1 ||
+			    envlint != 1 || tests != 2 || coverage != 2) exit 1
+			if (target == "check" && docker != 0) exit 1
+			if (target == "check-all" && docker != 1) exit 1
 		}
 	' "$MAKEFILE_TEST_LOG"
+
+	export MAKEFILE_TEST_FAIL='go mod verify'
+	if run_make "$target"; then
+		printf '%s should fail when module verification fails\n' "$target" >&2
+		exit 1
+	fi
+	unset MAKEFILE_TEST_FAIL
+	if grep -Eq '^start (swag|protoc|go tool|go fix|go test|docker) ' "$MAKEFILE_TEST_LOG"; then
+		printf '%s ran generators or checks after module verification failed\n' "$target" >&2
+		exit 1
+	fi
 
 	export MAKEFILE_TEST_FAIL='go tool golangci-lint fmt'
 	if run_make "$target"; then
@@ -127,6 +202,28 @@ for target in check pre-commit; do
 		exit 1
 	fi
 done
+
+# Both public integration entry points must use the coverage-enforcing runner.
+for target in int-tests compose-up-int-tests; do
+	run_make "$target" 'INT_TESTS_STACK=docker compose -f custom.yml -p custom'
+	grep -Fxq 'start docker compose -f custom.yml -p custom workflow-test' "$MAKEFILE_TEST_LOG"
+	run_make "$target" 'BASE_STACK=docker --context test compose -f custom.yml -p custom'
+	grep -Fxq 'start docker --context test compose -f custom.yml -p custom -f docker-compose-int-tests.yml workflow-test' "$MAKEFILE_TEST_LOG"
+	run_make "$target" 'INT_TESTS_STACK=docker --host=tcp://test:2376 compose -f custom.yml -p custom'
+	grep -Fxq 'start docker --host=tcp://test:2376 compose -f custom.yml -p custom workflow-test' "$MAKEFILE_TEST_LOG"
+done
+
+# Integration tests must wait for successful completion of every local check.
+export MAKEFILE_TEST_FAIL='go tool cover -func=coverage.txt'
+if run_make check-all; then
+	printf '%s\n' 'check-all should fail when coverage reporting fails' >&2
+	exit 1
+fi
+unset MAKEFILE_TEST_FAIL
+if grep -q '^start docker ' "$MAKEFILE_TEST_LOG"; then
+	printf '%s\n' 'check-all started integration tests after local checks failed' >&2
+	exit 1
+fi
 
 # Local startup must finish module updates before either generator reads source.
 run_make run

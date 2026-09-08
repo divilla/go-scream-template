@@ -51,6 +51,10 @@ func (r *Repo) GetHistory(ctx context.Context, userID string) ([]entity.Translat
 		entities = append(entities, e)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("TranslationRepo - GetHistory - rows.Err: %w", err)
+	}
+
 	return entities, nil
 }
 

@@ -170,7 +170,7 @@ awk -F '\t' '
     if (path ~ /^skeleton\//) {
       return path ~ /_test\.go$/ ? 6 : 5
     }
-    if (path ~ /^(integration-test|int-tests)\//) return 3
+    if (path ~ /^(int-tests|int-tests)\//) return 3
     if (path ~ /(_test|\.test|\.spec)\.[^/]+$/ || path ~ /^scripts\/test\./) return 2
     if (path ~ /^(cmd|config|internal|pkg)\// && path ~ /\.go$/) return 1
     if (path == "Makefile" || path ~ /^(scripts\/|\.codex\/skills\/).*\.(sh|pl|pm|py|awk)$/) return 4

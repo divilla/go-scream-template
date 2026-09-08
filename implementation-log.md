@@ -9,3 +9,6 @@
 +20 -5 code - +109 -2 tests --- review fixes 07
 +4 -1 code - +18 -13 tests --- review fixes 08
 
+2026-09-08 14:49 002-makefile-and-tests-coverage
++27 -7 code - +71 -11 tests --- review fixes 01
+

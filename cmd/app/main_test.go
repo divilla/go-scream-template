@@ -15,8 +15,14 @@ func TestMain(t *testing.T) {
 	t.Cleanup(func() { entrypoint = original })
 
 	cfg := &config.Config{}
+	migrated := false
+	entrypoint.migrate = func() { migrated = true }
 	ran, fatal := false, false
-	entrypoint.config = func() (*config.Config, error) { return cfg, nil }
+	entrypoint.config = func() (*config.Config, error) {
+		assert.True(t, migrated, "migrations must precede configuration")
+
+		return cfg, nil
+	}
 	entrypoint.run = func(got *config.Config) { assert.Same(t, cfg, got); ran = true }
 	entrypoint.fatal = func(message string, args ...any) {
 		assert.Equal(t, "Config error: %s", message)
@@ -30,7 +36,12 @@ func TestMain(t *testing.T) {
 	assert.False(t, fatal)
 
 	ran = false
-	entrypoint.config = func() (*config.Config, error) { return nil, io.ErrUnexpectedEOF }
+	migrated = false
+	entrypoint.config = func() (*config.Config, error) {
+		assert.True(t, migrated, "migrations must also precede invalid configuration")
+
+		return nil, io.ErrUnexpectedEOF
+	}
 
 	main()
 	assert.True(t, fatal)

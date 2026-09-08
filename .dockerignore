@@ -10,6 +10,7 @@ nginx
 .gitignore
 
 coverage.txt
+.coverage
 
 docker-compose.yml
 

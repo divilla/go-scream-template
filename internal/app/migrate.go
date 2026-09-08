@@ -19,10 +19,34 @@ const (
 	_defaultTimeout  = time.Second
 )
 
-func init() {
-	databaseURL, ok := os.LookupEnv("PG_URL")
-	if !ok || len(databaseURL) == 0 {
-		log.Fatalf("migrate: environment variable not declared: PG_URL")
+type migration interface {
+	Up() error
+	Close() (error, error)
+}
+
+type migrationDependencies struct {
+	open   func(string, string) (migration, error)
+	sleep  func(time.Duration)
+	printf func(string, ...any)
+	fatalf func(string, ...any)
+}
+
+// Migrate applies database migrations before application configuration is loaded.
+func Migrate() {
+	runMigrations(os.Getenv("PG_URL"), migrationDependencies{
+		open: openMigration, sleep: time.Sleep, printf: log.Printf, fatalf: log.Fatalf,
+	})
+}
+
+func openMigration(sourceURL, databaseURL string) (migration, error) {
+	return migrate.New(sourceURL, databaseURL)
+}
+
+func runMigrations(databaseURL string, deps migrationDependencies) {
+	if databaseURL == "" {
+		deps.fatalf("migrate: environment variable not declared: PG_URL")
+
+		return
 	}
 
 	databaseURL += "?sslmode=disable"
@@ -30,34 +54,41 @@ func init() {
 	var (
 		attempts = _defaultAttempts
 		err      error
-		m        *migrate.Migrate
+		m        migration
 	)
 
 	for attempts > 0 {
-		m, err = migrate.New("file://migrations", databaseURL)
+		m, err = deps.open("file://migrations", databaseURL)
 		if err == nil {
 			break
 		}
 
-		log.Printf("Migrate: postgres is trying to connect, attempts left: %d", attempts)
-		time.Sleep(_defaultTimeout)
+		deps.printf("Migrate: postgres is trying to connect, attempts left: %d", attempts)
+		deps.sleep(_defaultTimeout)
+
 		attempts--
 	}
 
 	if err != nil {
-		log.Fatalf("Migrate: postgres connect error: %s", err)
+		deps.fatalf("Migrate: postgres connect error: %s", err)
+
+		return
 	}
 
 	err = m.Up()
 	defer m.Close()
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		log.Fatalf("Migrate: up error: %s", err)
-	}
 
-	if errors.Is(err, migrate.ErrNoChange) {
-		log.Printf("Migrate: no change")
+	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		deps.fatalf("Migrate: up error: %s", err)
+
 		return
 	}
 
-	log.Printf("Migrate: up success")
+	if errors.Is(err, migrate.ErrNoChange) {
+		deps.printf("Migrate: no change")
+
+		return
+	}
+
+	deps.printf("Migrate: up success")
 }

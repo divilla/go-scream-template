@@ -103,7 +103,7 @@ linters:
       - linters:
           - godot
           - paralleltest
-        path: integration-test
+        path: int-tests
       - linters:
           - godot
         path: internal

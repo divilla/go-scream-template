@@ -1,64 +1,52 @@
 # Repository Instructions
 
-Go service template using clean architecture: shared `user`, `task`, and
+This Go service template uses clean architecture. Shared `user`, `task`, and
 `translation` use cases serve REST, gRPC, RabbitMQ RPC, and NATS RPC.
 
 ## Implementation rules
 
-- Ask before choosing ambiguous behavior.
-- Keep general development, testing, and completion rules here; change documents
-  reference them and define scope, behavior, acceptance criteria, and scenarios.
-- Document intentional compatibility differences with reasons and observable
-  before/after behavior; test each difference.
+- If behavior is ambiguous, ask before choosing how to proceed.
+- Keep general development, testing, and completion rules in this file. Change
+  documents reference these rules and define scope, behavior, acceptance criteria,
+  and scenarios.
+- Document each intentional compatibility difference, including its reason and
+  observable behavior before and after the change. Test each difference.
 - Keep documentation and generated API definitions aligned with behavior.
-- Unit-test all production code; require **greater than 95% coverage in every
-  production package**. Maintain a unit test for every acceptance-criteria bullet.
-  Avoid tests that add no coverage unless they prove an acceptance criterion.
+- Unit-test handwritten production behavior. Verify every acceptance criterion
+  with an appropriate unit test, integration test, repository check, or documented
+  review. Avoid redundant tests that cover no additional behavior, edge case,
+  regression, or acceptance criterion.
 
 ## Required checks
 
-Use Makefile targets, not underlying tools. **Before completing each implementation
-phase**, all three commands must pass, plus applicable checks below:
+For any code implementation work:
 
-1. `make format`
-2. `make linter-golangci`
-3. `make test`
+1. Run `make check`  after each coherent implementation increment, including any 
+   subsequent fixes.
+2. Run `make int-tests` just before declaring implementation complete.
+3. Run `make deps-audit` if `go.mod` changed. 
 
-| Phase/change | Additional required commands |
-| --- | --- |
-| Dependencies | `make deps` (tidy, verify, remove obsolete dependencies/checksums) |
-| REST routes, handlers, or annotations | `make swag-v1` |
-| Protobuf definitions | `make proto-v1` |
-| Mocked interfaces | `make mock` |
-| API behavior, transport wiring, or shared application behavior | `make compose-up-integration-test` (affected flows and cross-transport regressions) |
-| Before pushing | `make pre-commit` |
+All required commands must pass before declaring implementation complete.
 
-Run applicable dependency/generation commands before the three phase checks.
-Report implementation complete only after all required checks pass.
+Unit tests must enforce statement coverage greater than 95% in every handwritten
+production Go package under `cmd`, `config`, `internal`, and `pkg`, excluding
+generated code and dependencies. Measure the default build and the production
+`migrate` build separately, including tagged production files. Each build must
+pass the threshold. Keep the coverage scope aligned with production packages and
+build tags as they change.
 
-`make test` runs `./internal/... ./pkg/... ./config/... ./cmd/...` with `-race`,
-atomic coverage, and `coverage.txt`; it counts execution across test packages and
-enforces >95% statement coverage per production package with executable statements.
-The coverage checker and its regression tests require `python3`.
+`make int-tests` must enforce aggregate statement coverage greater than 90% across
+handwritten production packages linked into the service, excluding generated code
+and dependencies. Measure integration coverage independently of unit tests.
+Missing or invalid coverage must fail the check.
 
 ## Other commands and setup
 
-Make loads/exports `.env`, falling back to `.env.example`; `make` shows `make help`.
-`make bin-deps` installs Go tools and protobuf plugins; install `protoc` separately.
-`make run` and `make pre-commit` regenerate Swagger/protobuf and require `swag` and
-`protoc` on `PATH`. Integration tests run in Docker for container DNS;
-`make integration-test` aliases `make compose-up-integration-test`.
-
-| Task | Command |
-| --- | --- |
-| Vulnerability scan / preview Go fixes | `make deps-audit` / `make fix-diff` |
-| Start dependencies and follow logs / start full stack | `make compose-up` / `make compose-up-all` |
-| Stop/remove stack containers | `make compose-down` |
-| Run locally with startup migrations | `make run` |
-| Create migration pair / apply migrations | `make migrate-create NAME=<name>` / `make migrate-up` |
+Use Makefile targets, not the underlying tools, wherever possible. Run `make help` 
+to familiarize yourself with the available commands.
 
 ## Permissions
 
-Modify `AGENTS.md` only when the user explicitly directs that specific path to
-change. General implementation, fix, refactor, format, test, or documentation
+Modify `AGENTS.md` only when the user explicitly requests a change to that specific
+path. General implementation, fix, refactor, format, test, or documentation
 requests do not authorize editing it.

@@ -14,7 +14,7 @@ different settings than CI. Use the target, not the tool.
 | --- | --- | --- |
 | Install tool binaries (`swag`, `mockgen`, `migrate`, linters) | `make bin-deps` | `go install ...` |
 | Unit tests | `make test` | `go test ./...` — the target adds `-race -covermode atomic` and scopes to `./internal/... ./pkg/...` |
-| Integration tests | `make compose-up-integration-test` | `make integration-test` — see below |
+| Integration tests | `make integration-test` | `go test ./integration-test/...` on the host |
 | Lint | `make linter-golangci` | `golangci-lint run` |
 | Format | `make format` | `gofmt` — the target runs `go fix`, `gofumpt`, and `gci` with the repo's import grouping |
 | Regenerate mocks | `make mock` | `mockgen ...` |
@@ -28,17 +28,17 @@ different settings than CI. Use the target, not the tool.
 | Run the app locally | `make run` | `go run ./cmd/app` — the target regenerates docs and builds with `-tags migrate` |
 | Create a migration | `make migrate-create NAME=<name>` | `migrate create ...` |
 | Apply migrations | `make migrate-up` | `migrate -path ... up` |
-| Full check before pushing | `make pre-commit` | running the steps by hand |
+| Check before pushing | `make check` | running the steps by hand |
+| Full check including integration tests | `make check-all` | running the steps by hand |
 
 `make help` lists every target.
 
 Notes on these targets:
 
-- **`make integration-test` is not the one you want.** It runs `go test ./integration-test/...` on
-  the host, where the suite cannot resolve the container hostnames it needs, so it always fails.
-  `make compose-up-integration-test` is the real entry point.
+- **`make integration-test` aliases `make compose-up-integration-test`.** Both run in Docker
+  so the suite can resolve container hostnames.
 - **`make migrate-create NAME=<name>` requires a name.** Omitting `NAME` fails before creating files.
-- **`make run` and `make pre-commit` depend on `swag-v1` and `proto-v1`**, so they need `swag` and
+- **`make run`, `make check`, and `make check-all` depend on `swag-v1` and `proto-v1`**, so they need `swag` and
   `protoc` on `PATH`. Run `make bin-deps` first (`protoc` itself is not installed by it).
 
 Never claim a change is done without `make format`, `make linter-golangci` and `make test` passing.

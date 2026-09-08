@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Write"
+  short_description: "Write change specifications aligned with branch commits"
+  default_prompt: "Use $change-write to write or refresh the change document, resolve ambiguities with me, and display the complete result."

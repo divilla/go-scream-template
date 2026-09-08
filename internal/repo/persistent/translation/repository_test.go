@@ -12,6 +12,7 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/divilla/go-scream-template/internal/entity"
 	"github.com/divilla/go-scream-template/pkg/postgres"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ type queryResult struct {
 	rows          [][]string
 	columns       int
 	command, code string
+	iterationCode string
 }
 
 func database(t *testing.T, results ...queryResult) *postgres.Postgres {
@@ -65,6 +67,13 @@ func sendResult(backend *pgproto3.Backend, result *queryResult) {
 
 	if result.columns > 0 {
 		sendRows(backend, result)
+	}
+
+	if result.iterationCode != "" {
+		backend.Send(&pgproto3.ErrorResponse{Severity: "ERROR", Code: result.iterationCode, Message: "row iteration failed"})
+		backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+
+		return
 	}
 
 	command := result.command
@@ -117,7 +126,7 @@ func (p *brokenPlaceholder) ReplacePlaceholders(query string) (string, error) {
 func TestHistory(t *testing.T) {
 	t.Parallel()
 
-	for _, kind := range []string{"success", "empty", "query-error", "scan-error"} {
+	for _, kind := range []string{"success", "empty", "query-error", "scan-error", "iteration-error", "empty-iteration-error"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 
@@ -131,12 +140,25 @@ func TestHistory(t *testing.T) {
 			case "scan-error":
 				result.columns = 3
 				result.rows = [][]string{{"en", "de", "hello"}}
+			case "iteration-error":
+				result.iterationCode = "XX000"
+			case "empty-iteration-error":
+				result.rows = nil
+				result.iterationCode = "XX000"
 			}
 
 			got, err := New(database(t, result)).GetHistory(t.Context(), "user-1")
 			if strings.HasSuffix(kind, "error") {
 				require.Error(t, err)
 				assert.Nil(t, got)
+
+				if result.iterationCode != "" {
+					require.ErrorContains(t, err, "rows.Err")
+
+					var pgErr *pgconn.PgError
+					require.ErrorAs(t, err, &pgErr)
+					assert.Equal(t, result.iterationCode, pgErr.Code)
+				}
 
 				return
 			}

@@ -18,12 +18,24 @@ WORKDIR /app
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -tags migrate -o /bin/app ./cmd/app
 
-# Step 3: Final
-FROM scratch
+FROM builder AS coverage-builder
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -cover -covermode=atomic -tags migrate -o /bin/app ./cmd/app
+
+# Shared runtime; the default final target stays uninstrumented.
+FROM scratch AS runtime
 
 COPY --from=builder /app/config /config
 COPY --from=builder /app/migrations /migrations
-COPY --from=builder /bin/app /app
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 CMD ["/app"]
+
+FROM runtime AS integration
+
+COPY --from=coverage-builder /bin/app /app
+
+FROM runtime AS production
+
+COPY --from=builder /bin/app /app
