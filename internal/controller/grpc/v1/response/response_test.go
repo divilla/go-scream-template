@@ -1,6 +1,7 @@
 package response_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -183,4 +184,9 @@ func TestNewTranslationHistory(t *testing.T) {
 	assert.Equal(t, "en", resp.History[1].Destination)
 	assert.Equal(t, "мир", resp.History[1].Original)
 	assert.Equal(t, "world", resp.History[1].Translation)
+}
+
+func TestTaskCountOverflow(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, int32(math.MaxInt32), response.NewListTasksResponse(nil, math.MaxInt).GetTotal())
 }

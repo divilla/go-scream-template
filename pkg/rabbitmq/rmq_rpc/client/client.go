@@ -59,7 +59,9 @@ type Client struct {
 	rw    sync.RWMutex
 	calls map[string]*pendingCall
 
-	timeout time.Duration
+	publishMessage  func(string, amqp.Publishing) error
+	closeConnection func() error
+	timeout         time.Duration
 }
 
 // New -.
@@ -82,6 +84,11 @@ func New(url, serverExchange, clientExchange string, opts ...Option) (*Client, e
 		stop:           make(chan struct{}),
 		calls:          make(map[string]*pendingCall),
 		timeout:        _defaultTimeout,
+	}
+
+	c.closeConnection = func() error { return c.conn.Connection.Close() }
+	c.publishMessage = func(exchange string, message amqp.Publishing) error {
+		return c.conn.Channel.Publish(exchange, "", false, false, message)
 	}
 
 	// Custom options
@@ -113,7 +120,7 @@ func (c *Client) Shutdown() error {
 
 	// Close connection
 
-	err = c.conn.Connection.Close()
+	err = c.closeConnection()
 	if err != nil {
 		shutdownErrors = append(shutdownErrors, err)
 	}
@@ -311,11 +318,8 @@ func (c *Client) publish(ctx context.Context, corrID, handler string, request an
 	headers := amqp.Table{}
 	otel.GetTextMapPropagator().Inject(ctx, rmqrpc.TableCarrier(headers))
 
-	err = c.conn.Channel.Publish(
+	err = c.publishMessage(
 		c.serverExchange,
-		"",
-		false,
-		false,
 		amqp.Publishing{
 			ContentType:   "application/json",
 			CorrelationId: corrID,

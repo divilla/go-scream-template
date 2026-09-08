@@ -6,7 +6,7 @@ import (
 	"github.com/divilla/go-scream-template/internal/controller/restapi/v1/request"
 	_ "github.com/divilla/go-scream-template/internal/controller/restapi/v1/response" // for swaggo
 	"github.com/divilla/go-scream-template/internal/entity"
-	"github.com/gofiber/fiber/v2"
+	"github.com/labstack/echo/v5"
 )
 
 // @Summary     Show history
@@ -19,27 +19,27 @@ import (
 // @Failure     500 {object} response.Error
 // @Security    BearerAuth
 // @Router      /translation/history [get]
-func (r *V1) history(ctx *fiber.Ctx) error {
-	userID, ok := ctx.Locals("userID").(string)
+func (r *V1) history(ctx *echo.Context) error {
+	userID, ok := ctx.Get("userID").(string)
 	if !ok {
 		return errorResponse(ctx, http.StatusUnauthorized, "unauthorized")
 	}
 
-	translationHistory, err := r.t.History(ctx.UserContext(), userID)
+	translationHistory, err := r.t.History(ctx.Request().Context(), userID)
 	if err != nil {
 		r.l.Error(err, "restapi - v1 - history")
 
 		return errorResponse(ctx, http.StatusInternalServerError, "database problems")
 	}
 
-	return ctx.Status(http.StatusOK).JSON(translationHistory)
+	return ctx.JSON(http.StatusOK, translationHistory)
 }
 
 // @Summary     Translate
 // @Description Translate a text
 // @ID          do-translate
 // @Tags        translation
-// @Accept      json
+// @Accept      json,xml,x-www-form-urlencoded,mpfd
 // @Produce     json
 // @Param       request body     request.Translate true "Set up translation"
 // @Success     200     {object} entity.Translation
@@ -47,19 +47,20 @@ func (r *V1) history(ctx *fiber.Ctx) error {
 // @Failure     401     {object} response.Error
 // @Failure     500     {object} response.Error
 // @Security    BearerAuth
+// @Failure     413     {object} map[string]string "Request body exceeds 4 MiB"
 // @Router      /translation/do-translate [post]
-func (r *V1) doTranslate(ctx *fiber.Ctx) error {
-	userID, ok := ctx.Locals("userID").(string)
+func (r *V1) doTranslate(ctx *echo.Context) error {
+	userID, ok := ctx.Get("userID").(string)
 	if !ok {
 		return errorResponse(ctx, http.StatusUnauthorized, "unauthorized")
 	}
 
 	var body request.Translate
 
-	if err := ctx.BodyParser(&body); err != nil {
+	if err := bindBody(ctx, &body); err != nil {
 		r.l.Error(err, "restapi - v1 - doTranslate")
 
-		return errorResponse(ctx, http.StatusBadRequest, "invalid request body")
+		return bodyErrorResponse(ctx, err)
 	}
 
 	if err := r.v.Struct(body); err != nil {
@@ -69,7 +70,7 @@ func (r *V1) doTranslate(ctx *fiber.Ctx) error {
 	}
 
 	translation, err := r.t.Translate(
-		ctx.UserContext(),
+		ctx.Request().Context(),
 		userID,
 		entity.Translation{
 			Source:      body.Source,
@@ -83,5 +84,5 @@ func (r *V1) doTranslate(ctx *fiber.Ctx) error {
 		return errorResponse(ctx, http.StatusInternalServerError, "translation service problems")
 	}
 
-	return ctx.Status(http.StatusOK).JSON(translation)
+	return ctx.JSON(http.StatusOK, translation)
 }

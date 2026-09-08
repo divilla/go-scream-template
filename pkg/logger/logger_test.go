@@ -2,14 +2,17 @@ package logger
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 )
 
 var errTest = errors.New("test error")
@@ -18,9 +21,7 @@ var errTest = errors.New("test error")
 func newBufferedLogger(level string) (*Logger, *bytes.Buffer) {
 	l := New(level)
 	buf := &bytes.Buffer{}
-	// Recreate the zerolog.Logger to write into buffer while keeping similar options
-	// We keep the same skip frame count so caller field exists, but we don't assert its value
-	zl := zerolog.New(buf).With().Timestamp().Logger()
+	zl := l.Zerolog().Output(buf)
 	l.logger = new(zl)
 
 	return l, buf
@@ -194,4 +195,22 @@ func TestFatal_ExitsAndLogs(t *testing.T) {
 			t.Fatalf("expected exit code 1, got %d; output: %s", status, string(out))
 		}
 	}
+}
+
+func TestLogFields(t *testing.T) {
+	t.Parallel()
+
+	l, buf := newBufferedLogger("info")
+	l.Info("application ready")
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
+	require.Equal(t, "info", entry["level"])
+	require.Equal(t, "application ready", entry["message"])
+	timestamp, ok := entry["time"].(string)
+	require.True(t, ok)
+
+	_, err := time.Parse(time.RFC3339, timestamp)
+	require.NoError(t, err)
+	require.NotContains(t, entry, "caller")
 }

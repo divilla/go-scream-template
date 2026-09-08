@@ -4,11 +4,15 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/divilla/go-scream-template/pkg/logger"
-	"github.com/goccy/go-json"
-	"github.com/gofiber/fiber/v2"
+	"github.com/labstack/echo/v5"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -17,103 +21,99 @@ const (
 	_defaultReadTimeout     = 5 * time.Second
 	_defaultWriteTimeout    = 5 * time.Second
 	_defaultShutdownTimeout = 3 * time.Second
+	_defaultBodyLimit       = 4 << 20 // 4 MiB.
 )
 
-// Server -.
+// Server owns the HTTP listener and its graceful shutdown.
 type Server struct {
-	ctx context.Context
-	eg  *errgroup.Group
-
-	App    *fiber.App
-	notify chan error
-
+	ctx             context.Context
+	stop            context.CancelFunc
+	eg              *errgroup.Group
+	start           sync.Once
+	App             *echo.Echo
+	notify          chan error
 	address         string
-	prefork         bool
 	readTimeout     time.Duration
 	writeTimeout    time.Duration
 	shutdownTimeout time.Duration
-
-	logger logger.Interface
+	shutdownErr     error
+	httpServer      *http.Server
+	logger          logger.Interface
 }
 
-// New -.
+// New configures an Echo server without starting its listener.
 func New(l logger.Interface, opts ...Option) *Server {
-	group, ctx := errgroup.WithContext(context.Background())
-	group.SetLimit(1) // Run only one goroutine
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	group, ctx := errgroup.WithContext(ctx)
 
 	s := &Server{
-		ctx:             ctx,
-		eg:              group,
-		App:             nil,
-		notify:          make(chan error, 1),
-		address:         _defaultAddr,
-		readTimeout:     _defaultReadTimeout,
-		writeTimeout:    _defaultWriteTimeout,
-		shutdownTimeout: _defaultShutdownTimeout,
-		logger:          l,
+		ctx: ctx, stop: stop, eg: group,
+		App:    echo.NewWithConfig(echo.Config{Router: bodyLimitRouter{echo.NewRouter(echo.RouterConfig{AutoHandleHEAD: true})}}),
+		notify: make(chan error, 1), address: _defaultAddr,
+		readTimeout: _defaultReadTimeout, writeTimeout: _defaultWriteTimeout,
+		shutdownTimeout: _defaultShutdownTimeout, logger: l,
 	}
-
-	// Custom options
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	app := fiber.New(fiber.Config{
-		Prefork:      s.prefork,
-		ReadTimeout:  s.readTimeout,
-		WriteTimeout: s.writeTimeout,
-		JSONDecoder:  json.Unmarshal,
-		JSONEncoder:  json.Marshal,
-	})
-
-	s.App = app
-
 	return s
 }
 
-// Start -.
+// Start starts the listener once; failures are available through Notify.
 func (s *Server) Start() {
-	s.eg.Go(func() error {
-		err := s.App.Listen(s.address)
-		if err != nil {
-			s.notify <- err
+	s.start.Do(func() {
+		s.eg.Go(func() error {
+			defer close(s.notify)
+			defer s.stop()
 
-			close(s.notify)
+			cfg := echo.StartConfig{
+				// Echo uses zero for its default and negative values to disable shutdown.
+				Address: s.address, GracefulTimeout: max(s.shutdownTimeout, time.Nanosecond),
+				HideBanner: true, HidePort: true,
+				BeforeServeFunc: s.configureHTTP,
+				OnShutdownError: func(err error) {
+					s.shutdownErr = errors.Join(err, s.httpServer.Close())
+				},
+			}
+
+			err := cfg.Start(s.ctx, s.App)
+			if err != nil {
+				s.notify <- err
+			}
 
 			return err
-		}
-
-		return nil
+		})
 	})
+}
 
+func (s *Server) configureHTTP(server *http.Server) error {
+	s.httpServer = server
+	server.ReadTimeout = s.readTimeout
+	server.WriteTimeout = s.writeTimeout
 	s.logger.Info("restapi server - Server - Started")
+
+	return nil
 }
 
-// Notify -.
-func (s *Server) Notify() <-chan error {
-	return s.notify
-}
+// Notify reports listener failures and closes when serving ends.
+func (s *Server) Notify() <-chan error { return s.notify }
 
-// Shutdown -.
+// Shutdown waits for in-flight requests up to the configured timeout.
 func (s *Server) Shutdown() error {
-	var shutdownErrors []error
+	s.stop()
 
-	err := s.App.ShutdownWithTimeout(s.shutdownTimeout)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		s.logger.Error(err, "restapi server - Server - Shutdown - s.App.ShutdownWithTimeout")
-
-		shutdownErrors = append(shutdownErrors, err)
+	err := s.eg.Wait()
+	if errors.Is(err, context.Canceled) {
+		err = nil
 	}
 
-	// Wait for all goroutines to finish and get any error
-	err = s.eg.Wait()
-	if err != nil && !errors.Is(err, context.Canceled) {
-		s.logger.Error(err, "restapi server - Server - Shutdown - s.eg.Wait")
-
-		shutdownErrors = append(shutdownErrors, err)
+	err = errors.Join(err, s.shutdownErr)
+	if err != nil {
+		s.logger.Error(err, "restapi server - Server - Shutdown")
 	}
 
 	s.logger.Info("restapi server - Server - Shutdown")
 
-	return errors.Join(shutdownErrors...)
+	return err
 }

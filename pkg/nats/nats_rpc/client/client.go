@@ -23,10 +23,15 @@ const (
 
 const _tracerName = "nats-rp.client"
 
+type connection interface {
+	Close()
+	RequestMsg(*nats.Msg, time.Duration) (*nats.Msg, error)
+}
+
 // Client -.
 type Client struct {
 	subject    string
-	connection *nats.Conn
+	connection connection
 
 	timeout time.Duration
 }
@@ -37,12 +42,18 @@ func New(
 	serverSubject string,
 	opts ...Option,
 ) (*Client, error) {
-	connection, err := nats.Connect(
-		url,
-		nats.ReconnectWait(_defaultWaitTime),
-		nats.MaxReconnects(_defaultAttempts),
-		nats.Timeout(_defaultWaitTime),
-	)
+	return newClient(url, serverSubject, func(url string) (connection, error) {
+		return nats.Connect(
+			url,
+			nats.ReconnectWait(_defaultWaitTime),
+			nats.MaxReconnects(_defaultAttempts),
+			nats.Timeout(_defaultWaitTime),
+		)
+	}, opts...)
+}
+
+func newClient(url, serverSubject string, connect func(string) (connection, error), opts ...Option) (*Client, error) {
+	connection, err := connect(url)
 	if err != nil {
 		return nil, fmt.Errorf("nats_rpc client - NewClient - nats.Connect: %w", err)
 	}

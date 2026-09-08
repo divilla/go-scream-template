@@ -40,11 +40,25 @@ type useCases struct {
 	task        usecase.Task
 }
 
+type server interface {
+	Start()
+	Notify() <-chan error
+	Shutdown() error
+}
+
 type servers struct {
-	rmq  *rmqRPCServer.Server
-	nats *natsRPCServer.Server
-	grpc *grpcserver.Server
-	http *httpserver.Server
+	rmq, nats, grpc, http server
+}
+
+type serverConstructors struct {
+	rmq  func(string, string, map[string]rmqRPCServer.CallHandler, logger.Interface, ...rmqRPCServer.Option) (*rmqRPCServer.Server, error)
+	nats func(string, string, map[string]natsRPCServer.CallHandler, logger.Interface, ...natsRPCServer.Option) (*natsRPCServer.Server, error)
+}
+
+type dependencies struct {
+	tracing  func(context.Context, tracing.Config) (tracing.ShutdownFunc, error)
+	postgres func(string, ...postgres.Option) (*postgres.Postgres, error)
+	servers  func(*config.Config, useCases, *jwt.Manager, logger.Interface) servers
 }
 
 func initUseCases(pg *postgres.Postgres, jwtManager *jwt.Manager) useCases {
@@ -60,10 +74,14 @@ func initUseCases(pg *postgres.Postgres, jwtManager *jwt.Manager) useCases {
 }
 
 func initServers(cfg *config.Config, uc useCases, jwtManager *jwt.Manager, l logger.Interface) servers {
+	return initServersWith(cfg, uc, jwtManager, l, serverConstructors{rmq: rmqRPCServer.New, nats: natsRPCServer.New})
+}
+
+func initServersWith(cfg *config.Config, uc useCases, jwtManager *jwt.Manager, l logger.Interface, constructors serverConstructors) servers {
 	// RabbitMQ RPC Server
 	rmqRouter := amqprpc.NewRouter(uc.translation, uc.user, uc.task, jwtManager, l)
 
-	rmqServer, err := rmqRPCServer.New(cfg.RMQ.URL, cfg.RMQ.ServerExchange, rmqRouter, l)
+	rmqServer, err := constructors.rmq(cfg.RMQ.URL, cfg.RMQ.ServerExchange, rmqRouter, l)
 	if err != nil {
 		l.Fatal(fmt.Errorf("app - Run - rmqServer - server.New: %w", err))
 	}
@@ -71,7 +89,7 @@ func initServers(cfg *config.Config, uc useCases, jwtManager *jwt.Manager, l log
 	// NATS RPC Server
 	natsRouter := natsrpc.NewRouter(uc.translation, uc.user, uc.task, jwtManager, l)
 
-	natsServer, err := natsRPCServer.New(cfg.NATS.URL, cfg.NATS.ServerExchange, natsRouter, l)
+	natsServer, err := constructors.nats(cfg.NATS.URL, cfg.NATS.ServerExchange, natsRouter, l)
 	if err != nil {
 		l.Fatal(fmt.Errorf("app - Run - natsServer - server.New: %w", err))
 	}
@@ -88,7 +106,7 @@ func initServers(cfg *config.Config, uc useCases, jwtManager *jwt.Manager, l log
 	grpc.NewRouter(grpcServer.App, uc.translation, uc.user, uc.task, l)
 
 	// HTTP Server
-	httpServer := httpserver.New(l, httpserver.Port(cfg.HTTP.Port), httpserver.Prefork(cfg.HTTP.UsePreforkMode))
+	httpServer := httpserver.New(l, httpserver.Port(cfg.HTTP.Port))
 	restapi.NewRouter(httpServer.App, cfg, uc.translation, uc.user, uc.task, jwtManager, l)
 
 	return servers{
@@ -108,8 +126,14 @@ func (s *servers) startServers() {
 
 func (s *servers) waitForShutdown(l logger.Interface) {
 	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(interrupt)
+
+	s.waitForShutdownSignal(l, interrupt)
+}
+
+func (s *servers) waitForShutdownSignal(l logger.Interface, interrupt <-chan os.Signal) {
 	var err error
 
 	select {
@@ -148,12 +172,14 @@ func (s *servers) shutdownServers(l logger.Interface) {
 
 // Run creates objects via constructors.
 func Run(cfg *config.Config) {
-	l := logger.New(cfg.Log.Level)
+	run(cfg, logger.New(cfg.Log.Level), dependencies{tracing: tracing.New, postgres: postgres.New, servers: initServers})
+}
 
+func run(cfg *config.Config, l logger.Interface, deps dependencies) {
 	ctx := context.Background()
 
 	// Tracing
-	shutdownTracing, err := tracing.New(ctx, tracing.Config{
+	shutdownTracing, err := deps.tracing(ctx, tracing.Config{
 		Enabled:     cfg.Tracing.Enabled,
 		ServiceName: cfg.App.Name,
 		Version:     cfg.App.Version,
@@ -171,7 +197,7 @@ func Run(cfg *config.Config) {
 	}()
 
 	// Repository
-	pg, err := postgres.New(cfg.PG.URL, postgres.MaxPoolSize(cfg.PG.PoolMax))
+	pg, err := deps.postgres(cfg.PG.URL, postgres.MaxPoolSize(cfg.PG.PoolMax))
 	if err != nil {
 		l.Fatal(fmt.Errorf("app - Run - postgres.New: %w", err))
 	}
@@ -181,7 +207,7 @@ func Run(cfg *config.Config) {
 	jwtManager := jwt.New(cfg.JWT.Secret, cfg.JWT.TokenExpiry)
 
 	uc := initUseCases(pg, jwtManager)
-	s := initServers(cfg, uc, jwtManager, l)
+	s := deps.servers(cfg, uc, jwtManager, l)
 	s.startServers()
 	s.waitForShutdown(l)
 }

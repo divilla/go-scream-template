@@ -41,7 +41,7 @@ if [[ ${CODEX_TEST_FAIL-} == 1 ]]; then
 	exit 42
 fi
 
-[[ "$prompt" == "\$change-code $CODEX_TEST_EXPECTED_SPECIFICATION" ]]
+[[ "$prompt" == "\$change-implement $CODEX_TEST_EXPECTED_SPECIFICATION" ]]
 count=0
 [[ ! -f "$CODEX_TEST_IMPLEMENTATION_COUNT" ]] || count=$(<"$CODEX_TEST_IMPLEMENTATION_COUNT")
 ((count += 1))
@@ -131,7 +131,7 @@ $0 == "Repository: " repo {
 END { if (!found) exit 1 }
 ' "$first_output"
 grep -Eq '^codex exec --json -o /.+/implementation-result.md ' "$first_output"
-grep -Fq "'\$change-code agent/specs/000-domain-types.md'" "$first_output"
+grep -Fq "'\$change-implement agent/specs/000-domain-types.md'" "$first_output"
 awk '
 /^-+$/ {
 	separator = $0
@@ -162,7 +162,7 @@ change_output="$test_root/change-output"
 run_implementation "$change_output" agent/changes/014-enhanced-debug.md
 [[ $(git -C "$repo" log -1 --format=%s) == 'Implement change 014-enhanced-debug' ]]
 [[ $(<"$implementation_count") == 2 ]]
-grep -Fq "'\$change-code agent/changes/014-enhanced-debug.md'" "$change_output"
+grep -Fq "'\$change-implement agent/changes/014-enhanced-debug.md'" "$change_output"
 
 git -C "$repo" checkout -q master
 git -C "$repo" checkout -q -b change/001-failing-change

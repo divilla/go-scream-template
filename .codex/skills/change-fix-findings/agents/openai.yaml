@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Fix Findings"
+  short_description: "Validate and fix actionable review findings"
+  default_prompt: "Use $change-fix-findings to validate and fix these review findings completely:"

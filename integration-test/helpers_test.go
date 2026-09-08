@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	natsClient "github.com/divilla/go-scream-template/pkg/nats/nats_rpc/client"
 	rmqClient "github.com/divilla/go-scream-template/pkg/rabbitmq/rmq_rpc/client"
 	"github.com/goccy/go-json"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -128,23 +128,18 @@ func loginUser(t *testing.T, email, password string) string {
 	return result.Token
 }
 
-// sanitizeTestName converts t.Name() into a safe string for use as a username.
-func sanitizeTestName(t *testing.T) string {
+// uniqueUsername avoids account collisions when the database survives test runs.
+func uniqueUsername(t *testing.T) string {
 	t.Helper()
 
-	name := t.Name()
-	name = strings.ReplaceAll(name, "/", "_")
-	name = strings.ReplaceAll(name, " ", "_")
-	name = strings.ToLower(name)
-
-	return name
+	return "test_" + uuid.NewString()
 }
 
 // registerAndLogin creates a unique user via HTTP and returns the JWT token.
 func registerAndLogin(t *testing.T) string {
 	t.Helper()
 
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -162,7 +157,7 @@ func registerAndLogin(t *testing.T) string {
 func registerAndLoginGRPC(t *testing.T) string {
 	t.Helper()
 
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -203,7 +198,7 @@ func registerAndLoginGRPC(t *testing.T) string {
 func registerAndLoginRMQ(t *testing.T) string {
 	t.Helper()
 
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -252,7 +247,7 @@ func registerAndLoginRMQ(t *testing.T) string {
 func registerAndLoginNATS(t *testing.T) string {
 	t.Helper()
 
-	name := sanitizeTestName(t)
+	name := uniqueUsername(t)
 	email := name + "@test.com"
 	password := testPassword
 
@@ -362,7 +357,12 @@ func healthCheck(attempts int) error {
 }
 
 func TestMain(m *testing.M) {
-	err := healthCheck(attempts)
+	fixture, err := startTranslationFixture()
+	if err != nil {
+		log.Fatalf("Integration tests: %s", err)
+	}
+
+	err = healthCheck(attempts)
 	if err != nil {
 		log.Fatalf("Integration tests: httpURL %s is not available: %s", httpURL, err)
 	}
@@ -370,5 +370,7 @@ func TestMain(m *testing.M) {
 	log.Printf("Integration tests: httpURL %s is available", httpURL)
 
 	code := m.Run()
+
+	fixture.Close()
 	os.Exit(code)
 }

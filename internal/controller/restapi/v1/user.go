@@ -7,28 +7,29 @@ import (
 	"github.com/divilla/go-scream-template/internal/controller/restapi/v1/request"
 	"github.com/divilla/go-scream-template/internal/controller/restapi/v1/response"
 	"github.com/divilla/go-scream-template/internal/entity"
-	"github.com/gofiber/fiber/v2"
+	"github.com/labstack/echo/v5"
 )
 
 // @Summary     Register
 // @Description Register a new user
 // @ID          register
 // @Tags        auth
-// @Accept      json
+// @Accept      json,xml,x-www-form-urlencoded,mpfd
 // @Produce     json
 // @Param       request body     request.Register true "Registration data"
 // @Success     201     {object} entity.User
 // @Failure     400     {object} response.Error
 // @Failure     409     {object} response.Error
 // @Failure     500     {object} response.Error
+// @Failure     413     {object} map[string]string "Request body exceeds 4 MiB"
 // @Router      /auth/register [post]
-func (r *V1) register(ctx *fiber.Ctx) error {
+func (r *V1) register(ctx *echo.Context) error {
 	var body request.Register
 
-	if err := ctx.BodyParser(&body); err != nil {
+	if err := bindBody(ctx, &body); err != nil {
 		r.l.Error(err, "restapi - v1 - register")
 
-		return errorResponse(ctx, http.StatusBadRequest, "invalid request body")
+		return bodyErrorResponse(ctx, err)
 	}
 
 	if err := r.v.Struct(body); err != nil {
@@ -37,7 +38,7 @@ func (r *V1) register(ctx *fiber.Ctx) error {
 		return errorResponse(ctx, http.StatusBadRequest, "invalid request body")
 	}
 
-	user, err := r.u.Register(ctx.UserContext(), body.Username, body.Email, body.Password)
+	user, err := r.u.Register(ctx.Request().Context(), body.Username, body.Email, body.Password)
 	if err != nil {
 		r.l.Error(err, "restapi - v1 - register")
 
@@ -48,28 +49,29 @@ func (r *V1) register(ctx *fiber.Ctx) error {
 		return errorResponse(ctx, http.StatusInternalServerError, "internal server error")
 	}
 
-	return ctx.Status(http.StatusCreated).JSON(user)
+	return ctx.JSON(http.StatusCreated, user)
 }
 
 // @Summary     Login
 // @Description Authenticate user and get JWT token
 // @ID          login
 // @Tags        auth
-// @Accept      json
+// @Accept      json,xml,x-www-form-urlencoded,mpfd
 // @Produce     json
 // @Param       request body     request.Login true "Login credentials"
 // @Success     200     {object} response.Token
 // @Failure     400     {object} response.Error
 // @Failure     401     {object} response.Error
 // @Failure     500     {object} response.Error
+// @Failure     413     {object} map[string]string "Request body exceeds 4 MiB"
 // @Router      /auth/login [post]
-func (r *V1) login(ctx *fiber.Ctx) error {
+func (r *V1) login(ctx *echo.Context) error {
 	var body request.Login
 
-	if err := ctx.BodyParser(&body); err != nil {
+	if err := bindBody(ctx, &body); err != nil {
 		r.l.Error(err, "restapi - v1 - login")
 
-		return errorResponse(ctx, http.StatusBadRequest, "invalid request body")
+		return bodyErrorResponse(ctx, err)
 	}
 
 	if err := r.v.Struct(body); err != nil {
@@ -78,7 +80,7 @@ func (r *V1) login(ctx *fiber.Ctx) error {
 		return errorResponse(ctx, http.StatusBadRequest, "invalid request body")
 	}
 
-	token, err := r.u.Login(ctx.UserContext(), body.Email, body.Password)
+	token, err := r.u.Login(ctx.Request().Context(), body.Email, body.Password)
 	if err != nil {
 		r.l.Error(err, "restapi - v1 - login")
 
@@ -89,7 +91,7 @@ func (r *V1) login(ctx *fiber.Ctx) error {
 		return errorResponse(ctx, http.StatusInternalServerError, "internal server error")
 	}
 
-	return ctx.Status(http.StatusOK).JSON(response.Token{Token: token})
+	return ctx.JSON(http.StatusOK, response.Token{Token: token})
 }
 
 // @Summary     Get profile
@@ -103,13 +105,13 @@ func (r *V1) login(ctx *fiber.Ctx) error {
 // @Failure     500 {object} response.Error
 // @Security    BearerAuth
 // @Router      /user/profile [get]
-func (r *V1) profile(ctx *fiber.Ctx) error {
-	userID, ok := ctx.Locals("userID").(string)
+func (r *V1) profile(ctx *echo.Context) error {
+	userID, ok := ctx.Get("userID").(string)
 	if !ok {
 		return errorResponse(ctx, http.StatusUnauthorized, "unauthorized")
 	}
 
-	user, err := r.u.GetUser(ctx.UserContext(), userID)
+	user, err := r.u.GetUser(ctx.Request().Context(), userID)
 	if err != nil {
 		r.l.Error(err, "restapi - v1 - profile")
 
@@ -120,5 +122,5 @@ func (r *V1) profile(ctx *fiber.Ctx) error {
 		return errorResponse(ctx, http.StatusInternalServerError, "internal server error")
 	}
 
-	return ctx.Status(http.StatusOK).JSON(user)
+	return ctx.JSON(http.StatusOK, user)
 }

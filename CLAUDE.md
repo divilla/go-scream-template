@@ -1,7 +1,7 @@
 # go-clean-template
 
 Go clean-architecture reference service. Three domains (`user`, `task`, `translation`) exposed
-over four transports (REST/Fiber, gRPC, RabbitMQ RPC, NATS RPC) from one shared use-case layer.
+over four transports (REST/Echo v5, gRPC, RabbitMQ RPC, NATS RPC) from one shared use-case layer.
 Module path: `github.com/divilla/go-scream-template`. The Go version is declared in `go.mod`.
 
 ## Commands — drive everything through the Makefile
@@ -26,20 +26,18 @@ different settings than CI. Use the target, not the tool.
 | Start the whole stack including the app | `make compose-up-all` | `docker compose up` |
 | Tear down | `make compose-down` | `docker compose down` |
 | Run the app locally | `make run` | `go run ./cmd/app` — the target regenerates docs and builds with `-tags migrate` |
-| Create a migration | `make migrate-create <name>` | `migrate create ...` |
+| Create a migration | `make migrate-create NAME=<name>` | `migrate create ...` |
 | Apply migrations | `make migrate-up` | `migrate -path ... up` |
 | Full check before pushing | `make pre-commit` | running the steps by hand |
 
 `make help` lists every target.
 
-Three traps in these targets:
+Notes on these targets:
 
 - **`make integration-test` is not the one you want.** It runs `go test ./integration-test/...` on
   the host, where the suite cannot resolve the container hostnames it needs, so it always fails.
   `make compose-up-integration-test` is the real entry point.
-- **`make migrate-create <name>` prints an error after it succeeds.** The target reads the name via
-  `$(word 2,$(MAKECMDGOALS))`, so `make` then tries to build `<name>` as a target and reports
-  `No rule to make target`. The migration files are already created; ignore that line.
+- **`make migrate-create NAME=<name>` requires a name.** Omitting `NAME` fails before creating files.
 - **`make run` and `make pre-commit` depend on `swag-v1` and `proto-v1`**, so they need `swag` and
   `protoc` on `PATH`. Run `make bin-deps` first (`protoc` itself is not installed by it).
 
@@ -96,7 +94,7 @@ Layout rules:
 Every controller method, on every transport, does the same six things in the same order. Copy the
 shape from a neighbouring handler in the same transport.
 
-1. **Get the caller.** REST: `ctx.Locals("userID").(string)`. gRPC: `grpcmw.UserIDFromContext(ctx)`.
+1. **Get the caller.** REST: `ctx.Get("userID").(string)`. gRPC: `grpcmw.UserIDFromContext(ctx)`.
    AMQP / NATS: `extractUserID(d, r.j)`. A failure here is an auth error, not a 500.
 2. **Decode into a transport-local DTO** from `<transport>/v1/request/`. Never decode into an
    `entity` type, and never pass a `request.*` type into a use case.
@@ -104,8 +102,7 @@ shape from a neighbouring handler in the same transport.
    validation (required, min, max, oneof) lives here. Domain validation — anything that needs to
    know the rules, like a status transition — lives on the entity or the use case and must not be
    duplicated in the controller.
-4. **Call the use case** with the request context: `ctx.UserContext()` in Fiber (**not**
-   `ctx.Context()`, which drops the trace), the handler's `ctx` everywhere else. `context.Context`
+4. **Call the use case** with the request context: `ctx.Request().Context()` in Echo, the handler's `ctx` everywhere else. `context.Context`
    is the first parameter of every method that crosses a layer.
 5. **Map the error.** `errors.Is` against the `entity.Err*` sentinels → a transport status. Log the
    wrapped error, return a generic message to the caller.
@@ -213,7 +210,7 @@ before writing.
 
 1. **Entity** — `internal/entity/<domain>.go` with the type and its invariants; new sentinel errors
    go in `internal/entity/errors.go`.
-2. **Migration** — `make migrate-create create_<table>`, then fill both the `.up.sql` and the
+2. **Migration** — `make migrate-create NAME=create_<table>`, then fill both the `.up.sql` and the
    `.down.sql`. A missing down-migration is a review failure.
 3. **Repo contract** — add the interface to `internal/repo/contracts.go`.
 4. **Repo implementation** — `internal/repo/persistent/<domain>/<domain>.go` (`package <domain>`,
@@ -245,7 +242,7 @@ with worked examples per transport; follow it rather than inventing a scheme.
 ## Database
 
 `migrations/` holds golang-migrate pairs (`<timestamp>_<name>.up.sql` / `.down.sql`). Create with
-`make migrate-create <name>`, apply with `make migrate-up`. The app applies them itself at startup
+`make migrate-create NAME=<name>`, apply with `make migrate-up`. The app applies them itself at startup
 only when built with the `migrate` build tag (`internal/app/migrate.go`) — that is what `make run`
 and the Dockerfile do. Queries are built with Squirrel via the embedded `*postgres.Postgres`;
 there is no ORM and no raw string concatenation.

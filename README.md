@@ -1,3 +1,5 @@
+![Go Clean Template](docs/img/logo.svg)
+
 # Go Scream Template
 
 Screaming Architecture template for Golang services
@@ -13,7 +15,7 @@ Screaming Architecture template for Golang services
 [![Query Builder](https://img.shields.io/badge/Squirrel-SQL%20Query%20Builder-blue)](https://github.com/Masterminds/squirrel)
 [![Database Migrations](https://img.shields.io/badge/Migrations-Seamless%20Schema%20Updates-blue)](https://github.com/golang-migrate/migrate)
 [![Logging](https://img.shields.io/badge/ZeroLog-Structured%20Logging-blue)](https://github.com/rs/zerolog)
-[![Metrics](https://img.shields.io/badge/Prometheus-Metrics%20Integration-blue)](https://github.com/ansrivas/fiberprometheus)
+[![Metrics](https://img.shields.io/badge/Prometheus-Metrics%20Integration-blue)](https://github.com/labstack/echo-prometheus)
 [![Tracing](https://img.shields.io/badge/OpenTelemetry-Distributed%20Tracing-blue)](https://opentelemetry.io/)
 [![Testing](https://img.shields.io/badge/Testify-Testing%20Framework-blue)](https://github.com/stretchr/testify)
 [![Mocking](https://img.shields.io/badge/Mock-Mocking%20Library-blue)](https://go.uber.org/mock)
@@ -109,7 +111,23 @@ make compose-up
 make run
 ```
 
+Create a migration pair with `make migrate-create NAME=create_table`, then edit the
+generated files in `migrations/` and apply them with `make migrate-up`.
+
+After stopping the stack with `make compose-down`, `make docker-rm-volume` deletes
+the database volume for the selected Compose project. This target requires
+`python3` to read the resolved Compose configuration.
+
 ### Integration tests (can be run in CI)
+
+The integration Compose file routes translation requests to a local HTTPS
+fixture. It exercises the translation client and saved history without calling
+Google's live service.
+
+Test accounts use unique usernames and email addresses so repeated runs work
+with the existing database volume. Test data remains in that volume after the
+containers stop.
+
 
 ```sh
 # DB, app + migrations, integration tests
@@ -141,7 +159,7 @@ Check services:
   - [v1/task.proto](docs/proto/v1/task.proto)
   - [v1/translation.history.proto](docs/proto/v1/translation.history.proto)
 - PostgreSQL:
-  - `postgres://user:myAwEsOm3pa55@w0rd@127.0.0.1:5432/db`
+  - `postgres://postgres:postgres@localhost:15432/db`
 - RabbitMQ:
   - http://rabbitmq.lvh.me | http://127.0.0.1:15672
   - Credentials: `guest` / `guest`
@@ -151,13 +169,46 @@ Check services:
 - Jaeger (traces UI):
   - http://jaeger.lvh.me | http://127.0.0.1:16686
 
+## HTTP behavior
+
+The REST API uses Echo v5. Routes are case-sensitive; trailing slashes are
+normalized internally, so `/v1/tasks` and `/v1/tasks/` both work without a
+redirect. GET endpoints also accept HEAD with the same authentication and status
+behavior and no response body. Handler validation and domain errors retain the
+`{"error":"..."}` response shape. Router errors and recovered panics use Echo's
+`{"message":"..."}` responses; internal error and panic details appear only
+in application logs.
+
+Request bodies are limited to 4 MiB, including chunked requests and trailing XML
+content. JSON (including structured `+json` media types), XML, URL-encoded forms,
+and multipart forms are accepted. Media types are case-insensitive; parameters
+such as multipart boundaries retain their original case. Gzip, deflate, and
+Brotli (`br` or `brotli`) request bodies are decoded before binding. The 4 MiB
+limit applies to both the encoded body and each decoded stage. The complete body
+is checked before handlers run. Larger bodies return HTTP 413 with
+`{"message":"Request Entity Too Large"}` before use cases run.
+When Swagger is enabled, `/swagger` and `/swagger/` redirect to
+`/swagger/index.html`; all Swagger URLs return 404 when disabled.
+
+HTTP metrics use the `echo_` prefix, including `echo_requests_total`,
+`echo_request_duration_seconds`, `echo_request_size_bytes`, and
+`echo_response_size_bytes`, with `code`, `method`, `host`, and `url` labels.
+The `host` label is fixed to the configured `APP_NAME`; client Host headers no
+longer create separate series, preventing unbounded host-label cardinality.
+The `method` label preserves GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS,
+TRACE, and PATCH; all other values (including lowercase variants) aggregate as
+`UNKNOWN` instead of creating a series per method. This bounds method-label
+cardinality without changing routing or response status codes.
+Each HTTP router owns its registry, including Go and process collectors.
+Update dashboards to use these metric names and labels.
+
 ## Observability
 
 Distributed tracing is provided by [OpenTelemetry](https://opentelemetry.io/). Spans are exported over OTLP/gRPC to a
 collector — [Jaeger](https://www.jaegertracing.io/) in the docker stack.
 
 - **Context propagation** — W3C `traceparent` + `baggage`, so a single trace spans all four transports. REST uses
-  the [echo-opentelemetry](github.com/labstack/echo-opentelemetry) middleware, gRPC uses the
+  the [echo-opentelemetry](https://github.com/labstack/echo-opentelemetry) middleware, gRPC uses the
   [otelgrpc](https://github.com/open-telemetry/opentelemetry-go-contrib) stats handler, and AMQP RPC / NATS RPC carry the
   trace context in message headers via custom carriers (`pkg/rabbitmq/rmq_rpc/otel_carrier.go`,
   `pkg/nats/nats_rpc/otel_carrier.go`).
@@ -178,6 +229,16 @@ Configuration (see [.env.example](.env.example)):
 | `TRACING_OTLP_ENDPOINT` | `localhost:4317`   | OTLP/gRPC collector endpoint      |
 | `TRACING_OTLP_INSECURE` | `true`             | Disable TLS for the OTLP exporter |
 | `TRACING_SAMPLE_RATE`   | `0.1`              | Parent-based sampling ratio       |
+
+### Request logging
+
+Logs use zerolog JSON with `time`, `level`, and `message`, without an automatic
+`caller` field. HTTP request logs include `request_id`, `remote_ip`, `method`,
+`uri`, `status`, `response_size` (bytes), and `latency` (milliseconds).
+Echo's request ID middleware echoes an incoming `X-Request-ID` or generates one
+and returns it in that response header. Use this ID to find the corresponding
+request log. Returned errors include an `error` field; recovered panics also
+include a `stack` field, while the HTTP response hides internal details.
 
 ## Project structure
 
@@ -244,7 +305,7 @@ Server handler layer (MVC controllers). The template shows 4 servers:
 - AMQP RPC (based on RabbitMQ as transport)
 - NATS RPC (based on NATS as transport)
 - gRPC ([gRPC](https://grpc.io/) framework based on protobuf)
-- REST API ([Fiber](https://github.com/gofiber/fiber) framework)
+- REST API ([Echo v5](https://github.com/labstack/echo) framework)
 
 Server routers are written in the same style:
 
@@ -328,7 +389,7 @@ apiV2Group := app.Group("/v2")
 }
 ```
 
-Instead of [Fiber](https://github.com/gofiber/fiber), you can use any other http framework.
+Instead of [Echo v5](https://github.com/labstack/echo), you can use any other http framework.
 
 In `router.go` and above the handler methods, there are comments for generating swagger documentation
 using [swag](https://github.com/swaggo/swag).

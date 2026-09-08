@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Implement"
+  short_description: "Implement a specification in an existing codebase"
+  default_prompt: "Use $change-implement to implement the following specification completely and verify the result:"

@@ -23,7 +23,7 @@ make implement agent/specs/000-domain-types.md
 make implement agent/changes/014-enhanced-debug.md
 ```
 
-This creates and checks out the entry's change branch, uses `$change-code` to
+This creates and checks out the entry's change branch, uses `$change-implement` to
 implement the specification or change, commits that result, and then starts the
 review loop. Each findings pass uses `$change-fix-findings` before the loop
 commits and pushes the resulting fixes.
@@ -111,7 +111,7 @@ command. In a color-capable terminal, labels remain white while repository,
 specification, and branch values are blue, magenta, and green respectively.
 
 The implementation runs as
-`codex exec --json -o <temporary-result> '$change-code <specification>'` with
+`codex exec --json -o <temporary-result> '$change-implement <specification>'` with
 the same elapsed-time, output-marker, activity-marker, success, failure, and
 interrupt behavior as `codex-review-loop.pl`. Raw JSON output is suppressed on
 success and printed on failure. When Codex succeeds, the script requires both a

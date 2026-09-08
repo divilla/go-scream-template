@@ -2,7 +2,7 @@ package request
 
 // Translate -.
 type Translate struct {
-	Source      string `json:"source"       validate:"required"  example:"auto"`
-	Destination string `json:"destination"  validate:"required"  example:"en"`
-	Original    string `json:"original"     validate:"required"  example:"текст для перевода"`
+	Source      string `json:"source" form:"source" validate:"required"  example:"auto"`
+	Destination string `json:"destination" form:"destination" validate:"required"  example:"en"`
+	Original    string `json:"original" form:"original" validate:"required"  example:"текст для перевода"`
 } // @name v1.Translate

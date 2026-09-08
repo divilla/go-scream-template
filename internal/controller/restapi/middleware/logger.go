@@ -1,35 +1,44 @@
 package middleware
 
 import (
-	"strconv"
-	"strings"
+	"errors"
 
-	"github.com/divilla/go-scream-template/pkg/logger"
-	"github.com/gofiber/fiber/v2"
+	"github.com/labstack/echo/v5"
+	echomiddleware "github.com/labstack/echo/v5/middleware"
+	"github.com/rs/zerolog"
 )
 
-func buildRequestMessage(ctx *fiber.Ctx) string {
-	var result strings.Builder
+// Logger records completed requests through the application logger.
+func Logger(l *zerolog.Logger) echo.MiddlewareFunc {
+	return echomiddleware.RequestLoggerWithConfig(echomiddleware.RequestLoggerConfig{
+		LogRemoteIP: true, LogMethod: true, LogURI: true,
+		LogStatus: true, LogResponseSize: true, HandleError: true,
+		LogRequestID: true, LogLatency: true,
+		LogValuesFunc: func(_ *echo.Context, v echomiddleware.RequestLoggerValues) error {
+			level := zerolog.InfoLevel
+			if v.Error != nil {
+				level = zerolog.ErrorLevel
+			}
 
-	result.WriteString(ctx.IP())
-	result.WriteString(" - ")
-	result.WriteString(ctx.Method())
-	result.WriteString(" ")
-	result.WriteString(ctx.OriginalURL())
-	result.WriteString(" - ")
-	result.WriteString(strconv.Itoa(ctx.Response().StatusCode()))
-	result.WriteString(" ")
-	result.WriteString(strconv.Itoa(len(ctx.Response().Body())))
+			event := l.WithLevel(level)
 
-	return result.String()
-}
+			var panicErr *echomiddleware.PanicStackError
+			if errors.As(v.Error, &panicErr) {
+				event.Err(panicErr.Err).Bytes("stack", panicErr.Stack)
+			} else {
+				event.Err(v.Error)
+			}
 
-func Logger(l logger.Interface) func(c *fiber.Ctx) error {
-	return func(ctx *fiber.Ctx) error {
-		err := ctx.Next()
+			event.Str("request_id", v.RequestID).
+				Str("remote_ip", v.RemoteIP).
+				Str("method", v.Method).
+				Str("uri", v.URI).
+				Int("status", v.Status).
+				Int64("response_size", v.ResponseSize).
+				Dur("latency", v.Latency).
+				Msg("restapi request")
 
-		l.Info("%s", buildRequestMessage(ctx))
-
-		return err
-	}
+			return nil
+		},
+	})
 }
