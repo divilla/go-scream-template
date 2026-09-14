@@ -19,7 +19,7 @@ require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/andybalholm/brotli v1.2.2
 	github.com/caarlos0/env/v11 v11.4.1
-	github.com/exaring/otelpgx v0.11.1
+	github.com/exaring/otelpgx v0.12.0
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/goccy/go-json v0.10.6
 	github.com/golang-jwt/jwt/v5 v5.3.1
