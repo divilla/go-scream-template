@@ -86,7 +86,7 @@ jobs:
         run: make int-tests
       - name: Upload integration coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: integration-coverage
           path: .coverage/integration/
